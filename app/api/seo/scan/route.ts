@@ -1,58 +1,87 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions"; // <--- FIXED IMPORT
+import { authOptions } from "@/lib/authOptions";
 import dbConnect from "@/lib/dbConnect";
+import SeoClient from "@/models/SeoClient";
 import SeoSnapshot from "@/models/SeoSnapshot";
-
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions);
-
-    // DEBUG: Remove this after it works
-    if (!session) {
-      console.log("❌ SEO API: No Session Found. Check cookies.");
-      return NextResponse.json({ error: "Unauthorized - No Session" }, { status: 401 });
-    }
-
-    await dbConnect();
-    const snapshots = await SeoSnapshot.find({}).sort({ date: 1 });
-
-    return NextResponse.json({ success: true, data: snapshots });
-  } catch (error) {
-    console.error("❌ SEO API Error:", error);
-    return NextResponse.json({ success: false, error: "Failed to fetch data" }, { status: 500 });
-  }
-}
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    const authHeader = req.headers.get("x-anynet-secret");
-    const envSecret = process.env.ANYNET_API_SECRET;
-    
-    // Allow if Session exists OR if a secret header matches
-    const isAuthorized = session || (envSecret && authHeader === envSecret);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!isAuthorized) {
-      console.log("❌ SEO API POST: Unauthorized attempt.");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const { clientId } = await req.json();
     await dbConnect();
-    const body = await req.json();
 
+    const client = await SeoClient.findById(clientId);
+    if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+
+    console.log(`📡 Scanning: ${client.url}`);
+
+    // 1. Fetch with a "Real" Browser Header (Anti-bot bypass)
+    const { data: html } = await axios.get(client.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
+      timeout: 15000 
+    });
+
+    const $ = cheerio.load(html);
+
+    // 2. Extract & Normalize Text (The Fix)
+    // We lowercase everything and remove crazy extra spaces
+    const title = $("title").text().trim();
+    const description = $('meta[name="description"]').attr("content") || "";
+    const h1 = $("h1").first().text().trim();
+    
+    // Get ALL text from the body, remove scripts/styles, and normalize whitespace
+    $('script').remove();
+    $('style').remove();
+    const bodyText = $("body").text().replace(/\s+/g, " ").toLowerCase();
+
+    // 3. Analyze Keywords (Flexible Match)
+    let score = 100;
+    
+    const keywordResults = client.keywords.map((kw: string) => {
+      const cleanKw = kw.toLowerCase().trim();
+      if (!cleanKw) return null;
+
+      const inTitle = title.toLowerCase().includes(cleanKw);
+      const inH1 = h1.toLowerCase().includes(cleanKw);
+      const inBody = bodyText.includes(cleanKw);
+
+      // Penalties
+      if (!inTitle) score -= 15;
+      if (!inH1) score -= 20;
+      if (!inBody) score -= 10;
+
+      return {
+        keyword: kw,
+        foundInTitle: inTitle,
+        foundInH1: inH1,
+        foundInBody: inBody,
+        count: (bodyText.match(new RegExp(cleanKw, "g")) || []).length
+      };
+    }).filter(Boolean);
+
+    score = Math.max(0, score); // Can't go below 0
+
+    // 4. Save Snapshot
     const snapshot = await SeoSnapshot.create({
-      clientName: body.clientName,
-      domain: body.domain,
-      healthScore: body.healthScore,
-      organicTraffic: body.organicTraffic || 0,
-      rankings: body.rankings || [],
-      date: new Date(),
+      clientId: client._id,
+      overallScore: score,
+      titleTag: title.substring(0, 100), // Safety clip
+      h1Tag: h1.substring(0, 100),
+      keywordAnalysis: keywordResults,
+      date: new Date(), 
     });
 
     return NextResponse.json({ success: true, data: snapshot });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ success: false, error: "Failed to save scan" }, { status: 500 });
+
+  } catch (error: any) {
+    console.error("❌ Scan Error:", error.message);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
