@@ -1,56 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Plus, Play, Globe, Loader2, Search, TrendingUp, FileText, AlertTriangle 
+  Plus, Search, Globe, ChevronRight, TrendingUp, AlertCircle 
 } from "lucide-react";
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
-} from "recharts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { toast } from "sonner"; // Assuming you have sonner installed, or use alert()
-
-// --- CUSTOM COMPONENTS ---
-// Make sure you have these files created from previous steps!
-import DashboardHeader from "../dashboard/components/DashboardHeader"; 
-import SeoReportCard from "./components/SeoReportCard"; 
+import { toast } from "sonner";
+import DashboardHeader from "../dashboard/components/DashboardHeader";
 
 export default function SeoDashboard() {
-  // --- STATE MANAGEMENT ---
+  const router = useRouter();
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Selection
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  
-  // Data for Visuals
-  const [graphData, setGraphData] = useState<any[]>([]);
-  const [reportData, setReportData] = useState<any>(null);
+  const [scores, setScores] = useState<Record<string, number>>({}); // Map clientId -> Score
 
-  // Loading States for Actions
-  const [scanningId, setScanningId] = useState<string | null>(null);
-  const [rankingId, setRankingId] = useState<string | null>(null);
-  const [generatingReport, setGeneratingReport] = useState(false);
-
-  // Modal State
+  // New Client Form
   const [newClient, setNewClient] = useState({ name: "", url: "", keywords: "" });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     fetchClients();
   }, []);
-
-  // --- 2. FETCH DATA WHEN CLIENT CHANGES ---
-  useEffect(() => {
-    if (selectedClientId) {
-      fetchHistory(selectedClientId);
-      setReportData(null); // Clear old report when switching clients
-    }
-  }, [selectedClientId]);
-
-  // --- API FUNCTIONS ---
 
   const fetchClients = async () => {
     try {
@@ -58,149 +30,57 @@ export default function SeoDashboard() {
       const json = await res.json();
       if (json.success) {
         setClients(json.data);
-        // Select the first client by default if none selected
-        if (json.data.length > 0 && !selectedClientId) {
-          setSelectedClientId(json.data[0]._id);
-        }
+        // Fire off background fetches for latest scores
+        json.data.forEach((c: any) => fetchLatestScore(c._id));
       }
     } catch (e) {
-      console.error("Failed to fetch clients");
+      console.error("Failed to load directory");
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchHistory = async (id: string) => {
+  const fetchLatestScore = async (id: string) => {
     try {
+      // We limit to 1 to just get the latest
       const res = await fetch("/api/seo/history", {
         method: "POST",
         body: JSON.stringify({ clientId: id })
       });
       const json = await res.json();
-      
-      if (json.success) {
-        // Format dates for the graph (e.g., "06 Jan")
-        const formatted = json.data.map((item: any) => ({
-          date: new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-          score: item.overallScore
-        }));
-        setGraphData(formatted);
+      if (json.success && json.data.length > 0) {
+        // The API returns sorted by date (oldest first), so grab the last one
+        const latest = json.data[json.data.length - 1];
+        setScores(prev => ({ ...prev, [id]: latest.overallScore }));
       }
-    } catch (e) {
-      console.error("Graph load failed", e);
-    }
+    } catch(e) { console.error(e); }
   };
-
-  // --- ACTION HANDLERS ---
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     const keywordArray = newClient.keywords.split(",").map(k => k.trim());
-    
     await fetch("/api/seo/clients", {
       method: "POST",
       body: JSON.stringify({ ...newClient, keywords: keywordArray }),
     });
-    
     setIsDialogOpen(false);
     fetchClients();
-    setNewClient({ name: "", url: "", keywords: "" }); // Reset form
-    toast.success("Client added successfully");
+    setNewClient({ name: "", url: "", keywords: "" });
+    toast.success("Client added to directory");
   };
 
-  const runScan = async (clientId: string) => {
-    setScanningId(clientId);
-    try {
-      const res = await fetch("/api/seo/scan", {
-        method: "POST",
-        body: JSON.stringify({ clientId }),
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        toast.success(`Scan Complete: Score ${data.data.overallScore}/100`);
-        if (selectedClientId === clientId) fetchHistory(clientId);
-      } else {
-        toast.error("Scan Failed: " + data.error);
-      }
-    } catch (e) {
-      toast.error("Error running scan");
-    } finally {
-      setScanningId(null);
-    }
-  };
-
-  const checkRanks = async (clientId: string) => {
-    if (!confirm("⚠️ This will use SerpApi credits. Continue?")) return;
-    
-    setRankingId(clientId);
-    try {
-      const res = await fetch("/api/seo/check-rank", {
-        method: "POST",
-        body: JSON.stringify({ clientId }),
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        toast.success("Rankings Updated!");
-        // We could show a quick summary alert here
-        const ranks = data.data.googleRankings
-            .map((r: any) => `${r.keyword}: #${r.position}`)
-            .join("\n");
-        alert(`📉 Google Rankings:\n${ranks}`);
-      } else {
-        toast.error(data.error);
-      }
-    } catch (e) {
-      toast.error("Rank check failed");
-    } finally {
-      setRankingId(null);
-    }
-  };
-
-  const generateReport = async () => {
-    if (!selectedClientId) return;
-    setGeneratingReport(true);
-    try {
-      const res = await fetch("/api/seo/report", {
-        method: "POST",
-        body: JSON.stringify({ clientId: selectedClientId, range: "30_DAYS" }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setReportData(json.data);
-        toast.success("Report Generated!");
-      } else {
-        toast.error(json.error || "Could not generate report");
-      }
-    } catch(e) { 
-      toast.error("Report generation failed");
-    } finally {
-        setGeneratingReport(false);
-    }
-  };
-
-  // --- RENDER ---
-
-  if (loading) return (
-    <div className="flex h-screen items-center justify-center bg-slate-950 text-indigo-400">
-      <Loader2 className="w-8 h-8 animate-spin" />
-    </div>
-  );
-
-  const activeClient = clients.find(c => c._id === selectedClientId);
+  if (loading) return <div className="flex h-screen items-center justify-center bg-slate-950 text-indigo-400">Loading Directory...</div>;
 
   return (
     <div className="min-h-screen bg-slate-950 p-6 md:p-10 text-slate-200 font-sans pb-32">
       
-      {/* 1. THE HEADER (Your custom component) */}
       <DashboardHeader />
 
-      {/* 2. TOP BAR: Title & Add Client */}
+      {/* ACTION BAR */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-white">Performance Overview</h2>
-          <p className="text-slate-500 text-sm">Tracking On-Page Health & Keywords</p>
+          <h2 className="text-xl font-semibold text-white">Client Directory</h2>
+          <p className="text-slate-500 text-sm">Select a client to run scans or view reports.</p>
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -211,209 +91,68 @@ export default function SeoDashboard() {
             </button>
           </DialogTrigger>
           <DialogContent className="bg-slate-900 border-white/10 text-white sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add SEO Client</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Add SEO Client</DialogTitle></DialogHeader>
             <form onSubmit={handleAddClient} className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <label className="text-xs text-slate-400 ml-1">Company Name</label>
-                <input 
-                  className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500 transition-all"
-                  placeholder="e.g. TnT Infrastructure"
-                  value={newClient.name}
-                  onChange={e => setNewClient({...newClient, name: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-slate-400 ml-1">Website URL</label>
-                <input 
-                  className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500 transition-all"
-                  placeholder="https://..."
-                  value={newClient.url}
-                  onChange={e => setNewClient({...newClient, url: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-slate-400 ml-1">Keywords (Comma separated)</label>
-                <textarea 
-                  className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500 transition-all min-h-[80px]"
-                  placeholder="CCTV Cape Town, Fiber Installers, ..."
-                  value={newClient.keywords}
-                  onChange={e => setNewClient({...newClient, keywords: e.target.value})}
-                  required
-                />
-              </div>
-              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-lg font-medium">
-                Save Client
-              </button>
+              <input className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500" placeholder="e.g. TnT Infrastructure" value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} required />
+              <input className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500" placeholder="https://..." value={newClient.url} onChange={e => setNewClient({...newClient, url: e.target.value})} required />
+              <textarea className="w-full bg-slate-950 border border-white/10 rounded-lg p-3 outline-none focus:border-indigo-500 min-h-[80px]" placeholder="Keywords (Comma separated)" value={newClient.keywords} onChange={e => setNewClient({...newClient, keywords: e.target.value})} required />
+              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-lg font-medium">Save Client</button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* 3. MAIN GRAPH (Glass Panel) */}
-      <motion.div 
-        layout
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full h-[350px] bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-2xl p-6 relative mb-6 overflow-hidden shadow-2xl"
-      >
-        {/* Graph Header & Actions */}
-        <div className="flex justify-between items-center mb-6 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/10 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-indigo-400" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">
-                {activeClient ? activeClient.name : "Select a Client"}
-              </h3>
-              <p className="text-xs text-slate-500">History Protocol</p>
-            </div>
-          </div>
-          
-          {/* Action Buttons for Selected Client */}
-          {activeClient && (
-            <div className="flex items-center gap-2">
-               <button 
-                onClick={(e) => { e.stopPropagation(); generateReport(); }}
-                disabled={generatingReport}
-                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition-all border border-white/5"
-                title="Generate ROI Report"
-              >
-                {generatingReport ? <Loader2 className="w-4 h-4 animate-spin"/> : <FileText className="w-4 h-4" />}
-              </button>
-              <div className="h-6 w-[1px] bg-white/10 mx-1"></div>
-              <div className="text-right hidden sm:block">
-                 <div className="text-2xl font-bold text-white tracking-tight">
-                    {graphData.length > 0 ? graphData[graphData.length - 1].score : 0}
-                    <span className="text-sm text-slate-500 font-normal ml-1">/100</span>
-                 </div>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        {/* Recharts Area */}
-        {graphData.length > 0 ? (
-          <ResponsiveContainer width="100%" height="75%">
-            <AreaChart data={graphData}>
-              <defs>
-                <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#818cf8" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-              <XAxis dataKey="date" stroke="#475569" fontSize={12} tickLine={false} axisLine={false} dy={10} />
-              <YAxis stroke="#475569" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} dx={-10} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155", borderRadius: "12px", color: "#fff" }}
-                itemStyle={{ color: "#818cf8" }}
-              />
-              <Area type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-500 pb-10">
-            <p className="text-sm">No scan history available.</p>
-            {activeClient && (
-                <button onClick={() => runScan(activeClient._id)} className="mt-2 text-indigo-400 hover:underline text-sm">Run first scan</button>
-            )}
-          </div>
-        )}
-      </motion.div>
-
-      {/* 4. REPORT CARD (Conditional Render) */}
-      <AnimatePresence>
-        {reportData && (
-            <div className="mb-10">
-                <SeoReportCard report={reportData} />
-            </div>
-        )}
-      </AnimatePresence>
-
-      {/* 5. CLIENT LIST GRID */}
-      <div className="flex items-center gap-2 mb-6">
-        <h3 className="text-slate-400 font-medium text-sm uppercase tracking-wider">Active Clients</h3>
-        <div className="h-[1px] bg-white/10 flex-1 ml-4"></div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {clients.map((client) => (
+      {/* CLIENT LIST */}
+      <div className="grid grid-cols-1 gap-4">
+        {clients.map((client, i) => (
           <motion.div
             key={client._id}
-            layoutId={client._id}
-            onClick={() => setSelectedClientId(client._id)}
-            className={`group relative border rounded-2xl p-5 transition-all cursor-pointer ${
-              selectedClientId === client._id 
-                ? 'bg-indigo-500/5 border-indigo-500/50 shadow-lg shadow-indigo-500/10' 
-                : 'bg-slate-900/40 border-white/5 hover:border-white/20'
-            }`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            onClick={() => router.push(`/admin/seo/client/${client._id}`)}
+            className="group relative bg-slate-900/40 backdrop-blur-md border border-white/5 hover:border-indigo-500/30 rounded-2xl p-5 cursor-pointer hover:bg-white/5 transition-all flex items-center justify-between"
           >
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className={`p-3 rounded-xl border transition-colors ${selectedClientId === client._id ? 'bg-indigo-500/10 border-indigo-500/20' : 'bg-slate-950 border-white/10'}`}>
-                  <Globe className={`w-5 h-5 ${selectedClientId === client._id ? 'text-indigo-400' : 'text-slate-400'}`} />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-white font-semibold truncate">{client.name}</h4>
-                  <a href={client.url} target="_blank" className="text-xs text-slate-500 hover:text-indigo-400 transition-colors block truncate">
-                    {client.url.replace('https://', '').replace('www.', '')}
-                  </a>
+            {/* Left: Info */}
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-slate-950 rounded-xl border border-white/10 group-hover:border-indigo-500/30 transition-colors">
+                <Globe className="w-6 h-6 text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-lg">{client.name}</h3>
+                <p className="text-slate-500 text-sm flex items-center gap-2">
+                  {client.url.replace('https://', '').replace('www.', '').split('/')[0]}
+                  <span className="w-1 h-1 rounded-full bg-slate-600" />
+                  {client.keywords?.length || 0} Keywords
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Score & Arrow */}
+            <div className="flex items-center gap-6">
+              <div className="text-right hidden sm:block">
+                <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Last Health Score</p>
+                <div className="flex items-center justify-end gap-2">
+                  <TrendingUp className={`w-4 h-4 ${scores[client._id] > 80 ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <span className={`text-xl font-bold ${scores[client._id] > 80 ? 'text-white' : 'text-slate-300'}`}>
+                    {scores[client._id] || "--"}<span className="text-sm text-slate-500 font-normal">/100</span>
+                  </span>
                 </div>
               </div>
               
-              <div className="flex gap-2 shrink-0">
-                {/* On-Page Scan */}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); runScan(client._id); }}
-                  disabled={scanningId === client._id}
-                  className="p-2 bg-slate-800 hover:bg-indigo-600 text-slate-400 hover:text-white rounded-lg transition-all disabled:opacity-50"
-                  title="Run On-Page Health Scan"
-                >
-                  {scanningId === client._id ? <Loader2 className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4" />}
-                </button>
-
-                {/* Rank Check */}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); checkRanks(client._id); }}
-                  disabled={rankingId === client._id}
-                  className="p-2 bg-slate-800 hover:bg-emerald-600 text-slate-400 hover:text-white rounded-lg transition-all disabled:opacity-50"
-                  title="Check Google Rankings"
-                >
-                  {rankingId === client._id ? <Loader2 className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-4 border-t border-white/5">
-              <div className="flex flex-wrap gap-2 max-h-[60px] overflow-hidden">
-                {client.keywords?.slice(0, 3).map((k: string) => (
-                  <span key={k} className="px-2 py-1 bg-slate-950 rounded-md text-[10px] text-slate-400 border border-white/5 whitespace-nowrap">
-                    {k}
-                  </span>
-                ))}
-                 {client.keywords?.length > 3 && (
-                    <span className="px-2 py-1 text-[10px] text-slate-500">+{client.keywords.length - 3}</span>
-                  )}
+              <div className="p-2 rounded-full bg-white/5 text-slate-400 group-hover:text-white group-hover:bg-indigo-600 transition-all">
+                <ChevronRight className="w-5 h-5" />
               </div>
             </div>
           </motion.div>
         ))}
 
-        {/* Add New Card (Empty State) */}
-        <motion.div
-          onClick={() => setIsDialogOpen(true)}
-          className="border border-dashed border-white/10 rounded-2xl p-5 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-white/5 hover:border-indigo-500/30 transition-all min-h-[180px] group"
-        >
-          <div className="p-3 rounded-full bg-white/5 group-hover:bg-indigo-500/10 transition-colors">
-            <Plus className="w-6 h-6 text-slate-500 group-hover:text-indigo-400" />
+        {clients.length === 0 && (
+          <div className="text-center py-20 border-2 border-dashed border-white/5 rounded-3xl">
+            <AlertCircle className="w-10 h-10 text-slate-600 mx-auto mb-4" />
+            <p className="text-slate-500">No clients found. Add one to get started.</p>
           </div>
-          <p className="text-sm font-medium text-slate-500 group-hover:text-slate-300">Add New Client</p>
-        </motion.div>
+        )}
       </div>
     </div>
   );

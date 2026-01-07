@@ -3,61 +3,85 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import dbConnect from "@/lib/dbConnect";
 import SeoSnapshot from "@/models/SeoSnapshot";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// Initialize AI
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const { clientId, range } = await req.json(); // range = "30_DAYS" (default)
+    const { clientId, range } = await req.json(); 
     await dbConnect();
 
-    // 1. Fetch all snapshots for this client sorted by date
-    const snapshots = await SeoSnapshot.find({ 
-      clientId,
-      type: "RANK_CHECK" // Only look at rank checks, not technical audits
-    }).sort({ date: 1 });
+    // 1. Fetch Data
+    const snapshots = await SeoSnapshot.find({ clientId, type: "RANK_CHECK" }).sort({ date: 1 });
+    
+    if (snapshots.length === 0) return NextResponse.json({ success: false, error: "No data found." });
 
-    if (snapshots.length < 2) {
-      return NextResponse.json({ success: false, error: "Need at least 2 scans to generate a report." });
-    }
-
-    // 2. Determine "Before" and "After"
     const latest = snapshots[snapshots.length - 1];
-    const earliest = snapshots[0]; // Or filter by date range if you want specific months
+    const earliest = snapshots.length > 1 ? snapshots[0] : latest; 
 
-    // 3. Calculate Growth
     const comparison = latest.googleRankings.map((current: any) => {
       const old = earliest.googleRankings.find((p: any) => p.keyword === current.keyword);
       const startRank = old ? old.position : 0;
       const endRank = current.position;
       
-      // Calculate change (Negative is BAD in rank, unless we handle 0 as "unranked")
-      // Logic: If moved from 10 to 4, that is +6 spots gained.
-      let change = 0;
-      if (startRank === 0 && endRank > 0) change = "NEW"; // Entered rankings
-      else if (startRank > 0 && endRank === 0) change = "LOST"; // Dropped out
-      else change = startRank - endRank; // e.g., 10 - 4 = 6 (Positive improvement)
+      let change: any = 0;
+      if (snapshots.length === 1) change = "Initial"; 
+      else if (startRank === 0 && endRank > 0) change = "NEW"; 
+      else if (startRank > 0 && endRank === 0) change = "LOST"; 
+      else change = startRank - endRank; 
 
       return {
         keyword: current.keyword,
-        startRank: startRank === 0 ? "> 100" : `#${startRank}`,
-        endRank: endRank === 0 ? "> 100" : `#${endRank}`,
+        startRank: startRank === 0 ? "n/a" : `#${startRank}`,
+        endRank: endRank === 0 ? "Not Ranked" : `#${endRank}`,
         change: change,
-        status: change === "NEW" || (typeof change === 'number' && change > 0) ? "improved" : "declined"
+        status: change === "NEW" || (typeof change === 'number' && change > 0) ? "improved" : 
+                change === "Initial" ? "neutral" : "declined"
       };
     });
+
+    // 🧠 2. GENERATE AI BRIEF
+    let aiSummary = "Analysis not available.";
+    
+    if (process.env.GOOGLE_API_KEY) {
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" }); 
+        
+        const prompt = `
+          You are a Senior SEO Strategist for AnyNet SA. Analyze this ranking data:
+          ${JSON.stringify(comparison.map((c: any) => `${c.keyword}: ${c.startRank} -> ${c.endRank} (${c.status})`))}
+          
+          Write a concise "Executive Brief" (Max 3 sentences). 
+          1. Highlight the biggest win (keyword moving up) or opportunity.
+          2. Suggest 1 actionable next step (e.g., optimize H1, build backlinks).
+          3. Tone: Professional, encouraging, authority. 
+          4. Format: Plain text. No markdown bolding.
+        `;
+
+        const result = await model.generateContent(prompt);
+        aiSummary = result.response.text();
+      } catch (aiError: any) {
+        console.error("AI Generation Failed:", aiError.message);
+        aiSummary = "AI Insights temporarily unavailable. Please focus on keyword movements shown below.";
+      }
+    }
 
     return NextResponse.json({ 
       success: true, 
       data: {
         startDate: earliest.date,
         endDate: latest.date,
-        comparison
+        comparison,
+        aiSummary
       } 
     });
 
   } catch (error) {
-    return NextResponse.json({ error: "Failed to generate report" }, { status: 500 });
+    return NextResponse.json({ error: "Report generation failed" }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowUp, ArrowDown, Minus, Trophy } from "lucide-react";
+import { ArrowUp, ArrowDown, Minus, Trophy, Sparkles, BrainCircuit } from "lucide-react";
 
 export default function SeoReportCard({ report }: { report: any }) {
   if (!report) return null;
@@ -19,18 +19,40 @@ export default function SeoReportCard({ report }: { report: any }) {
                 Performance Report
             </h3>
             <p className="text-sm text-slate-400 mt-1">
-                Comparing {new Date(report.startDate).toLocaleDateString()} vs {new Date(report.endDate).toLocaleDateString()}
+                {new Date(report.startDate).toLocaleDateString()} — {new Date(report.endDate).toLocaleDateString()}
             </p>
         </div>
       </div>
 
+      {/* 🧠 AI EXECUTIVE BRIEF */}
+      {report.aiSummary && (
+        <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 relative overflow-hidden">
+          <div className="flex items-start gap-3 relative z-10">
+            <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0">
+              <Sparkles className="w-4 h-4 text-indigo-300" />
+            </div>
+            <div>
+              <h4 className="text-indigo-200 font-semibold text-sm mb-1 flex items-center gap-2">
+                AI Strategy Brief
+              </h4>
+              <p className="text-slate-300 text-sm leading-relaxed">
+                {report.aiSummary}
+              </p>
+            </div>
+          </div>
+          {/* Background decoration */}
+          <div className="absolute top-[-50%] right-[-10%] w-[100px] h-[100px] bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+        </div>
+      )}
+
+      {/* DATA TABLE */}
       <div className="overflow-hidden rounded-xl border border-white/5">
         <table className="w-full text-sm text-left">
           <thead className="bg-white/5 text-slate-300">
             <tr>
               <th className="p-4 font-medium">Keyword</th>
-              <th className="p-4 font-medium">Start Rank</th>
-              <th className="p-4 font-medium">Current Rank</th>
+              <th className="p-4 font-medium">Start</th>
+              <th className="p-4 font-medium">Current</th>
               <th className="p-4 font-medium text-right">Movement</th>
             </tr>
           </thead>
@@ -48,8 +70,10 @@ export default function SeoReportCard({ report }: { report: any }) {
                   }`}>
                     {item.change === "NEW" ? "NEW ENTRY" : (
                         <>
-                            {item.change > 0 ? <ArrowUp className="w-3 h-3" /> : item.change < 0 ? <ArrowDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                            {Math.abs(item.change)} Spots
+                            {typeof item.change === 'number' && item.change > 0 ? <ArrowUp className="w-3 h-3" /> : 
+                             typeof item.change === 'number' && item.change < 0 ? <ArrowDown className="w-3 h-3" /> : 
+                             <Minus className="w-3 h-3" />}
+                            {typeof item.change === 'number' ? Math.abs(item.change) : item.change}
                         </>
                     )}
                   </div>

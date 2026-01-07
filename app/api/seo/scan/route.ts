@@ -20,53 +20,53 @@ export async function POST(req: Request) {
 
     console.log(`📡 Scanning: ${client.url}`);
 
-    // 1. Fetch with a "Real" Browser Header (Anti-bot bypass)
-    const { data: html } = await axios.get(client.url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      },
-      timeout: 15000 
-    });
+    const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
 
+// 1. Fetch HTML
+    const { data: html } = await axios.get(client.url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)...' }
+    });
     const $ = cheerio.load(html);
 
-    // 2. Extract & Normalize Text (The Fix)
-    // We lowercase everything and remove crazy extra spaces
-    const title = $("title").text().trim();
-    const description = $('meta[name="description"]').attr("content") || "";
-    const h1 = $("h1").first().text().trim();
-    
-    // Get ALL text from the body, remove scripts/styles, and normalize whitespace
-    $('script').remove();
-    $('style').remove();
-    const bodyText = $("body").text().replace(/\s+/g, " ").toLowerCase();
+    // 2. Get Page Content (Normalized)
+    const title = normalize($("title").text());
+    const h1 = normalize($("h1").first().text());
+    const description = normalize($('meta[name="description"]').attr("content") || "");
+    const body = normalize($("body").text());
 
-    // 3. Analyze Keywords (Flexible Match)
-    let score = 100;
-    
+    // 3. Score Logic
+    let score = 0;
+    const maxScorePerKeyword = 100 / client.keywords.length; // Distribute points evenly
+
     const keywordResults = client.keywords.map((kw: string) => {
-      const cleanKw = kw.toLowerCase().trim();
-      if (!cleanKw) return null;
+        const cleanKw = normalize(kw);
+        if (!cleanKw) return null;
 
-      const inTitle = title.toLowerCase().includes(cleanKw);
-      const inH1 = h1.toLowerCase().includes(cleanKw);
-      const inBody = bodyText.includes(cleanKw);
+        const inTitle = title.includes(cleanKw);
+        const inH1 = h1.includes(cleanKw);
+        const inDesc = description.includes(cleanKw);
+        const inBody = body.includes(cleanKw);
 
-      // Penalties
-      if (!inTitle) score -= 15;
-      if (!inH1) score -= 20;
-      if (!inBody) score -= 10;
+        // Scoring Weights
+        let kwScore = 0;
+        if (inTitle) kwScore += 40; // Title is king
+        if (inH1) kwScore += 30;    // H1 is queen
+        if (inDesc) kwScore += 10;
+        if (inBody) kwScore += 20;  // Body is baseline
 
-      return {
-        keyword: kw,
-        foundInTitle: inTitle,
-        foundInH1: inH1,
-        foundInBody: inBody,
-        count: (bodyText.match(new RegExp(cleanKw, "g")) || []).length
-      };
+        // Cap at 100% per keyword contribution
+        score += (Math.min(kwScore, 100) / 100) * maxScorePerKeyword;
+
+        return {
+            keyword: kw,
+            foundInTitle: inTitle,
+            foundInH1: inH1,
+            count: (body.match(new RegExp(cleanKw, "g")) || []).length
+        };
     }).filter(Boolean);
 
-    score = Math.max(0, score); // Can't go below 0
+    // Round Score
+    score = Math.round(score);
 
     // 4. Save Snapshot
     const snapshot = await SeoSnapshot.create({
