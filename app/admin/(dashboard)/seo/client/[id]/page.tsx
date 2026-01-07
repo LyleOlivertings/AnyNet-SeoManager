@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   History,
   Download,
+  Printer, // Added Printer icon
 } from "lucide-react";
 import {
   AreaChart,
@@ -774,50 +775,69 @@ export default function ClientProfilePage({
                 <div className="p-3 bg-indigo-500/10 rounded-lg text-indigo-400">
                   <FileText className="w-6 h-6" />
                 </div>
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <button className="text-xs bg-slate-800 hover:bg-white text-slate-300 px-3 py-1.5 rounded-lg">
-                      Open
-                    </button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-4xl bg-slate-950 border-white/10 text-white max-h-[85vh] overflow-y-auto">
-                    <DialogHeader className="flex flex-row justify-between items-center pr-8">
-                      <DialogTitle>{report.title}</DialogTitle>
-                      {/* 🧠 DOWNLOAD FROM VAULT */}
-                      <button
-                        onClick={() =>
-                          downloadPdf(`report-${report._id}`, report.title)
-                        }
-                        disabled={downloadingPdf}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg"
-                      >
-                        {downloadingPdf ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Download className="w-3 h-3" />
-                        )}{" "}
-                        PDF
+                
+                {/* 🛠️ FIXED: Added Print View Button & Corrected ID Usage */}
+                <div className="flex gap-2">
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <button className="text-xs bg-slate-800 hover:bg-white text-slate-300 px-3 py-1.5 rounded-lg">
+                        Open
                       </button>
-                    </DialogHeader>
-                    <div
-                      id={`report-${report._id}`}
-                      className="p-1 bg-slate-950"
-                    >
-                      <SeoReportCard
-                        report={{
-                          startDate: report.dateGenerated,
-                          endDate: report.dateGenerated,
-                          comparison: report.data,
-                          aiSummary: report.aiSummary,
-                        }}
-                        client={client}
-                        // Note: Saved reports might not have history attached,
-                        // so we pass the current history or leave it empty if you prefer.
-                        history={history}
-                      />
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-4xl bg-slate-950 border-white/10 text-white max-h-[85vh] overflow-y-auto">
+                      <DialogHeader className="flex flex-row justify-between items-center pr-8">
+                        <DialogTitle>{report.title}</DialogTitle>
+                        {/* 🧠 DOWNLOAD FROM VAULT */}
+                        <button
+                          onClick={() =>
+                            downloadPdf(`report-${report._id}`, report.title)
+                          }
+                          disabled={downloadingPdf}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg"
+                        >
+                          {downloadingPdf ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Download className="w-3 h-3" />
+                          )}{" "}
+                          PDF
+                        </button>
+                      </DialogHeader>
+                      <div
+                        id={`report-${report._id}`}
+                        className="p-1 bg-slate-950"
+                      >
+                        <SeoReportCard
+                          report={{
+                            startDate: report.dateGenerated,
+                            endDate: report.dateGenerated,
+                            comparison: report.data,
+                            aiSummary: report.aiSummary,
+                          }}
+                          client={client}
+                          history={history}
+                        />
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  <button
+                    onClick={() => {
+                      // 🛡️ Safe Check: Using _id prevents the "undefined" error
+                      if (report._id) {
+                        window.open(
+                          `/admin/seo/print/${report._id}`,
+                          "_blank"
+                        );
+                      } else {
+                        toast.error("Report ID is missing");
+                      }
+                    }}
+                    className="flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg"
+                  >
+                     <Printer className="w-3 h-3" /> Print View
+                  </button>
+                </div>
               </div>
               <h4 className="text-white font-medium truncate">
                 {report.title}

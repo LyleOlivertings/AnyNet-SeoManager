@@ -8,7 +8,10 @@ import {
   Sparkles,
   Layers,
   TrendingUp,
+  ExternalLink, // Import this icon
+  Printer,
 } from "lucide-react";
+import Link from "next/link"; // Import Link
 import {
   AreaChart,
   Area,
@@ -41,39 +44,57 @@ export default function SeoReportCard({
     : [];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-none md:rounded-xl w-full max-w-7xl mx-auto shadow-xl text-slate-900 font-sans">
-      {/* 1. AGENCY HEADER (Wide) */}
-      <div className="bg-slate-50 border-b border-slate-200 p-6 flex justify-between items-center">
+    <div className="bg-white border border-slate-200 rounded-none md:rounded-xl w-full max-w-7xl mx-auto shadow-xl text-slate-900 font-sans mb-8">
+      {/* 1. AGENCY HEADER */}
+      <div className="bg-slate-50 border-b border-slate-200 p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
             <Layers className="w-7 h-7 text-white" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              AnyNet<span className="text-indigo-600">.io</span>
+              {client?.name || "Client Report"}
             </h1>
             <p className="text-xs text-indigo-600 uppercase tracking-wider font-bold">
               SEO Performance Report
             </p>
           </div>
         </div>
-        <div className="text-right">
-          <h2 className="text-2xl font-bold text-slate-900">
-            {client?.name || "Client Report"}
-          </h2>
-          <p className="text-sm text-slate-500 font-medium">
-            Generated:{" "}
-            {new Date().toLocaleDateString("en-GB", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </p>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden md:block mr-4">
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+              Generated
+            </p>
+            <p className="text-sm text-slate-700 font-medium">
+              {new Date(report.createdAt || new Date()).toLocaleDateString(
+                "en-GB",
+                {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                }
+              )}
+            </p>
+          </div>
+
+          {/* --- THE NEW NAVIGATION BUTTON --- */}
+          <Link
+            // Try report._id, if that fails try report.id, fallback to empty string (which prevents the link from breaking the app)
+            href={`/report/${report._id || report.id || ""}`}
+            target="_blank"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all font-medium text-sm group"
+          >
+            <Printer className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+            <span>Open Print View</span>
+            <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-indigo-400 ml-1" />
+          </Link>
+          {/* ---------------------------------- */}
         </div>
       </div>
 
       <div className="p-8 space-y-8">
-        {/* 2. EXECUTIVE SUMMARY (Full Width) */}
+        {/* 2. EXECUTIVE SUMMARY */}
         {report.aiSummary && (
           <div className="p-6 rounded-xl bg-indigo-50 border border-indigo-100 flex gap-4 items-start shadow-sm">
             <div className="p-2 bg-white rounded-lg shrink-0 shadow-sm border border-indigo-50 mt-1">
@@ -90,7 +111,7 @@ export default function SeoReportCard({
           </div>
         )}
 
-        {/* 3. LANDSCAPE GRID (Graph Left, Table Right) */}
+        {/* 3. LANDSCAPE GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* LEFT: VISIBILITY GRAPH */}
           <div className="flex flex-col h-full">
@@ -132,7 +153,7 @@ export default function SeoReportCard({
                     stroke="#4f46e5"
                     strokeWidth={3}
                     fill="url(#cardGradient)"
-                    isAnimationActive={false}
+                    isAnimationActive={true} // Keep animation for dashboard view
                   />
                 </AreaChart>
               </ResponsiveContainer>
