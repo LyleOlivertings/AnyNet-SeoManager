@@ -18,7 +18,14 @@ import {
   AlertTriangle,
   History,
   Download,
-  Printer, // Added Printer icon
+  Printer,
+  Zap,
+  Layout,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  CheckCircle2,
+  XCircle,
+  Activity
 } from "lucide-react";
 import {
   AreaChart,
@@ -38,8 +45,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import SeoReportCard from "../../components/SeoReportCard";
-import { toPng } from "html-to-image"; // 👈 NEW ENGINE
+import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
+
+// --- GAMIFICATION HELPER ---
+const getGrade = (score: number) => {
+  if (score >= 95) return { label: "S", color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30" };
+  if (score >= 80) return { label: "A", color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/30" };
+  if (score >= 60) return { label: "B", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/30" };
+  if (score >= 40) return { label: "C", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30" };
+  return { label: "F", color: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/30" };
+};
 
 export default function ClientProfilePage({
   params,
@@ -117,7 +133,7 @@ export default function ClientProfilePage({
   };
 
   // ==========================
-  // 2. THE PDF ENGINE (New & Improved) 🖨️
+  // 2. THE PDF ENGINE
   // ==========================
   const downloadPdf = async (elementId: string, title: string) => {
     const element = document.getElementById(elementId);
@@ -125,24 +141,20 @@ export default function ClientProfilePage({
 
     setDownloadingPdf(true);
     try {
-      // 1. Force the capture to be 1280px wide (A4 Landscape optimized)
-      // This ensures the 2-column layout triggers even if you are on a laptop.
       const dataUrl = await toPng(element, { 
         cacheBust: true, 
         backgroundColor: '#ffffff',
-        width: 1280, // 👈 FORCE DESKTOP WIDTH
+        width: 1280, 
         pixelRatio: 2, 
         style: {
            fontFamily: 'sans-serif',
-           maxWidth: 'none', // 👈 UNLOCK CONSTRAINTS
-           width: '1280px',  // 👈 FORCE WIDTH
-           height: 'auto'    // 👈 ALLOW FULL HEIGHT
+           maxWidth: 'none', 
+           width: '1280px',
+           height: 'auto'
         }
       });
 
-      // 2. Generate PDF
       const pdf = new jsPDF("l", "mm", "a4");
-      
       const imgProps = pdf.getImageProperties(dataUrl);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
@@ -170,13 +182,13 @@ export default function ClientProfilePage({
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(`Score: ${data.data.overallScore}/100`);
+        toast.success(`Scan Complete: ${data.data.overallScore}/100`);
         fetchHistory();
       } else {
         toast.error(data.error);
       }
     } catch (e) {
-      toast.error("Error");
+      toast.error("Error running scan");
     } finally {
       setScanningId(false);
     }
@@ -321,6 +333,10 @@ export default function ClientProfilePage({
     fetchHistory();
   };
 
+  // Extract latest Snapshot for the Overview
+  const latestSnapshot = history.slice().reverse().find(h => h.type === "AUDIT") || history[history.length - 1];
+  const grade = latestSnapshot ? getGrade(latestSnapshot.overallScore) : { label: "-", color: "text-slate-500", bg: "bg-slate-800", border: "border-slate-700" };
+
   if (loading)
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950 text-indigo-400">
@@ -364,7 +380,7 @@ export default function ClientProfilePage({
             ) : (
               <Play className="w-4 h-4" />
             )}{" "}
-            Scan
+            Run Scan
           </button>
           <button
             onClick={runRankCheck}
@@ -376,7 +392,7 @@ export default function ClientProfilePage({
             ) : (
               <SearchIcon className="w-4 h-4" />
             )}{" "}
-            Rank
+            Check Rank
           </button>
           <div className="w-[1px] h-6 bg-white/10 mx-1" />
           <button
@@ -389,7 +405,7 @@ export default function ClientProfilePage({
             ) : (
               <FileText className="w-4 h-4" />
             )}{" "}
-            Report
+            Generate Report
           </button>
         </div>
       </div>
@@ -413,13 +429,103 @@ export default function ClientProfilePage({
         )}
       </div>
 
-      {/* 1. OVERVIEW */}
+      {/* 1. OVERVIEW (THE FUN TWIST UI) */}
       {activeTab === "overview" && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="space-y-6"
         >
+          {/* A. VITALS HUD */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* 1. The Grade Card */}
+            <div className={`relative overflow-hidden rounded-3xl p-8 flex flex-col items-center justify-center border ${grade.border} ${grade.bg}`}>
+               <div className="absolute top-0 right-0 p-32 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
+               <h3 className="text-slate-400 text-sm font-medium uppercase tracking-widest mb-2">Overall Health</h3>
+               <div className="flex items-baseline gap-2">
+                  <span className={`text-8xl font-black ${grade.color} drop-shadow-2xl`}>
+                    {grade.label}
+                  </span>
+                  <span className="text-2xl font-bold text-white/50">
+                    {latestSnapshot?.overallScore || 0}%
+                  </span>
+               </div>
+               <div className="mt-6 flex gap-2">
+                  {latestSnapshot?.technicalAnalysis ? (
+                     <div className="px-3 py-1 rounded-full bg-white/10 text-xs font-medium text-white flex items-center gap-2">
+                        <Activity className="w-3 h-3" /> Technical Audit Active
+                     </div>
+                  ) : (
+                     <div className="px-3 py-1 rounded-full bg-amber-500/20 text-xs font-medium text-amber-300 flex items-center gap-2">
+                        <AlertTriangle className="w-3 h-3" /> Basic Scan Only
+                     </div>
+                  )}
+               </div>
+            </div>
+
+            {/* 2. Technical Vitals Grid */}
+            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+               {/* Speed */}
+               <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg"><Zap className="w-5 h-5" /></div>
+                     <span className={`text-xs font-bold px-2 py-1 rounded ${
+                        (latestSnapshot?.technicalAnalysis?.loadTime || 9999) < 800 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                     }`}>
+                        {(latestSnapshot?.technicalAnalysis?.loadTime || 0)}ms
+                     </span>
+                  </div>
+                  <h4 className="text-white font-medium">Server Response</h4>
+                  <p className="text-xs text-slate-500 mt-1">Time to first byte (TTFB)</p>
+               </div>
+
+               {/* Meta Data */}
+               <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg"><Layout className="w-5 h-5" /></div>
+                     {latestSnapshot?.technicalAnalysis?.metaDescription?.status === "Optimal" ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                     ) : (
+                        <AlertTriangle className="w-5 h-5 text-amber-400" />
+                     )}
+                  </div>
+                  <h4 className="text-white font-medium">Meta Tags</h4>
+                  <p className="text-xs text-slate-500 mt-1 truncate">
+                     {latestSnapshot?.technicalAnalysis?.metaTitle?.value || "No Data"}
+                  </p>
+               </div>
+
+               {/* Images */}
+               <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-2 bg-pink-500/20 text-pink-400 rounded-lg"><ImageIcon className="w-5 h-5" /></div>
+                     <span className="text-white font-bold">{latestSnapshot?.technicalAnalysis?.imageHealth?.score || 0}%</span>
+                  </div>
+                  <h4 className="text-white font-medium">Image Alt Text</h4>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                     <div 
+                        className="bg-pink-500 h-full rounded-full transition-all duration-1000" 
+                        style={{ width: `${latestSnapshot?.technicalAnalysis?.imageHealth?.score || 0}%` }} 
+                     />
+                  </div>
+               </div>
+
+               {/* Links */}
+               <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+                  <div className="flex justify-between items-start mb-4">
+                     <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg"><LinkIcon className="w-5 h-5" /></div>
+                     <div className="flex gap-2 text-xs">
+                        <span className="text-slate-400">Int: <b className="text-white">{latestSnapshot?.technicalAnalysis?.linkHealth?.internal || 0}</b></span>
+                        <span className="text-slate-400">Ext: <b className="text-white">{latestSnapshot?.technicalAnalysis?.linkHealth?.external || 0}</b></span>
+                     </div>
+                  </div>
+                  <h4 className="text-white font-medium">Link Profile</h4>
+                  <p className="text-xs text-slate-500 mt-1">Internal vs External structure</p>
+               </div>
+            </div>
+          </div>
+
           <AnimatePresence>
             {reportData && (
               <div className="relative mb-8">
@@ -455,7 +561,6 @@ export default function ClientProfilePage({
                   id="report-container-preview"
                   className="p-1 rounded-2xl bg-slate-950"
                 >
-                  {/* 👇 PASS CLIENT AND HISTORY HERE */}
                   <SeoReportCard
                     report={reportData}
                     client={client}
@@ -468,7 +573,7 @@ export default function ClientProfilePage({
 
           <div className="h-[400px] bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-2xl p-6 relative">
             <h3 className="text-lg font-semibold text-white mb-4 flex gap-2">
-              <TrendingUp className="w-5 h-5 text-indigo-400" /> Performance
+              <TrendingUp className="w-5 h-5 text-indigo-400" /> Performance Trend
             </h3>
             <ResponsiveContainer width="100%" height="85%">
               <AreaChart
@@ -634,7 +739,7 @@ export default function ClientProfilePage({
                   }) || (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-slate-500">
-                      No data.
+                      No rank data available yet.
                     </td>
                   </tr>
                 )}
@@ -776,7 +881,6 @@ export default function ClientProfilePage({
                   <FileText className="w-6 h-6" />
                 </div>
                 
-                {/* 🛠️ FIXED: Added Print View Button & Corrected ID Usage */}
                 <div className="flex gap-2">
                   <Dialog>
                     <DialogTrigger asChild>
@@ -787,7 +891,6 @@ export default function ClientProfilePage({
                     <DialogContent className="max-w-4xl bg-slate-950 border-white/10 text-white max-h-[85vh] overflow-y-auto">
                       <DialogHeader className="flex flex-row justify-between items-center pr-8">
                         <DialogTitle>{report.title}</DialogTitle>
-                        {/* 🧠 DOWNLOAD FROM VAULT */}
                         <button
                           onClick={() =>
                             downloadPdf(`report-${report._id}`, report.title)
@@ -823,7 +926,6 @@ export default function ClientProfilePage({
 
                   <button
                     onClick={() => {
-                      // 🛡️ Safe Check: Using _id prevents the "undefined" error
                       if (report._id) {
                         window.open(
                           `/admin/seo/print/${report._id}`,

@@ -18,70 +18,123 @@ export async function POST(req: Request) {
     const client = await SeoClient.findById(clientId);
     if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 });
 
-    console.log(`📡 Scanning: ${client.url}`);
+    console.log(`📡 Elite Scan Initiated: ${client.url}`);
 
-    const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
-
-// 1. Fetch HTML
-    const { data: html } = await axios.get(client.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)...' }
-    });
+    // 1. Performance Check (Time to First Byte)
+    const startTime = performance.now();
+    let html = "";
+    try {
+        const response = await axios.get(client.url, {
+            headers: { 
+                'User-Agent': 'AnyNet-SEO-Bot/1.0 (Compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                'Accept': 'text/html,application/xhtml+xml' 
+            },
+            timeout: 10000
+        });
+        html = response.data;
+    } catch (e: any) {
+        return NextResponse.json({ success: false, error: `Unreachable: ${e.message}` }, { status: 500 });
+    }
+    const loadTime = Math.round(performance.now() - startTime);
     const $ = cheerio.load(html);
+    const norm = (t: string) => t ? t.toLowerCase().replace(/\s+/g, " ").trim() : "";
 
-    // 2. Get Page Content (Normalized)
-    const title = normalize($("title").text());
-    const h1 = normalize($("h1").first().text());
-    const description = normalize($('meta[name="description"]').attr("content") || "");
-    const body = normalize($("body").text());
+    // 2. Technical Audits
+    // A. Meta Tags
+    const title = $("title").text().trim();
+    const desc = $('meta[name="description"]').attr("content")?.trim() || "";
+    const metaAnalysis = {
+        metaTitle: { 
+            value: title.substring(0, 60) + (title.length > 60 ? "..." : ""), 
+            status: title.length > 0 && title.length < 60 ? "Good" : "Issue",
+            length: title.length 
+        },
+        metaDescription: { 
+            value: desc.substring(0, 100) + (desc.length > 100 ? "..." : ""), 
+            status: desc.length >= 50 && desc.length <= 160 ? "Optimal" : "Issue",
+            length: desc.length
+        }
+    };
 
-    // 3. Score Logic
-    let score = 0;
-    const maxScorePerKeyword = 100 / client.keywords.length; // Distribute points evenly
+    // B. Headers
+    const h1Count = $("h1").length;
+    const h1Content = $("h1").first().text().trim();
 
+    // C. Images
+    const imgs = $("img");
+    let missingAlt = 0;
+    imgs.each((_, el) => { if (!$(el).attr("alt")) missingAlt++; });
+    const imageHealth = {
+        total: imgs.length,
+        missingAlt,
+        score: imgs.length > 0 ? Math.round(((imgs.length - missingAlt) / imgs.length) * 100) : 100
+    };
+
+    // D. Links
+    const internalLinks = $("a[href^='/']").length + $(`a[href*='${client.url}']`).length;
+    const externalLinks = $("a").length - internalLinks;
+
+    // 3. Keyword Content Analysis
+    const bodyText = norm($("body").text());
     const keywordResults = client.keywords.map((kw: string) => {
-        const cleanKw = normalize(kw);
+        const cleanKw = norm(kw);
         if (!cleanKw) return null;
+        
+        const inTitle = norm(title).includes(cleanKw);
+        const inH1 = norm(h1Content).includes(cleanKw);
+        const inDesc = norm(desc).includes(cleanKw);
+        const count = (bodyText.match(new RegExp(cleanKw, "g")) || []).length;
 
-        const inTitle = title.includes(cleanKw);
-        const inH1 = h1.includes(cleanKw);
-        const inDesc = description.includes(cleanKw);
-        const inBody = body.includes(cleanKw);
-
-        // Scoring Weights
-        let kwScore = 0;
-        if (inTitle) kwScore += 40; // Title is king
-        if (inH1) kwScore += 30;    // H1 is queen
-        if (inDesc) kwScore += 10;
-        if (inBody) kwScore += 20;  // Body is baseline
-
-        // Cap at 100% per keyword contribution
-        score += (Math.min(kwScore, 100) / 100) * maxScorePerKeyword;
+        let kScore = 0;
+        if (inTitle) kScore += 30;
+        if (inH1) kScore += 30;
+        if (inDesc) kScore += 10;
+        if (count > 0) kScore += 30;
 
         return {
             keyword: kw,
             foundInTitle: inTitle,
             foundInH1: inH1,
-            count: (body.match(new RegExp(cleanKw, "g")) || []).length
+            foundInDesc: inDesc,
+            countInBody: count,
+            score: Math.min(kScore, 100)
         };
     }).filter(Boolean);
 
-    // Round Score
-    score = Math.round(score);
+    // 4. Calculate Final Score
+    let score = 0;
+    // Tech Points (40)
+    if (metaAnalysis.metaTitle.status === "Good") score += 10;
+    if (metaAnalysis.metaDescription.status === "Optimal") score += 10;
+    if (h1Count === 1) score += 10;
+    if (imageHealth.score > 80) score += 10;
+    // Speed Points (20)
+    if (loadTime < 500) score += 20;
+    else if (loadTime < 1500) score += 10;
+    // Content Points (40)
+    const avgKwScore = keywordResults.length > 0 
+        ? keywordResults.reduce((a:number, b:any) => a + b.score, 0) / keywordResults.length 
+        : 0;
+    score += Math.round((avgKwScore / 100) * 40);
 
-    // 4. Save Snapshot
+    // 5. Save
     const snapshot = await SeoSnapshot.create({
       clientId: client._id,
       overallScore: score,
-      titleTag: title.substring(0, 100), // Safety clip
-      h1Tag: h1.substring(0, 100),
-      keywordAnalysis: keywordResults,
-      date: new Date(), 
+      type: "AUDIT",
+      technicalAnalysis: {
+          ...metaAnalysis,
+          h1Count,
+          h1Content,
+          imageHealth,
+          linkHealth: { internal: internalLinks, external: externalLinks },
+          loadTime
+      },
+      keywordAnalysis: keywordResults
     });
 
     return NextResponse.json({ success: true, data: snapshot });
-
   } catch (error: any) {
-    console.error("❌ Scan Error:", error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

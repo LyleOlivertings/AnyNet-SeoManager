@@ -12,11 +12,10 @@ export async function POST(req: Request) {
     const { clientId } = await req.json();
     await dbConnect();
 
-    // Fetch last 10 scans for this client, sorted by date
+    // FIXED: Removed .select() restriction so it returns the full technicalAnalysis object
     const history = await SeoSnapshot.find({ clientId })
-      .sort({ date: 1 }) // Oldest to newest for the graph
-      .limit(20)
-      .select("date overallScore");
+      .sort({ date: 1 }) 
+      .limit(20);
 
     return NextResponse.json({ success: true, data: history });
   } catch (error) {
